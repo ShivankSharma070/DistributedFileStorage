@@ -34,7 +34,7 @@ func TestDelete(t *testing.T) {
 	s := createNewStore()
 	key := "myotherkey"
 	data := []byte("some jpg")
-	err := s.writeStream(key, bytes.NewReader(data))
+	err := s.Write(key, bytes.NewReader(data))
 	assert.Nil(t, err)
 
 	err = s.Delete(key)
@@ -46,7 +46,7 @@ func TestNewStore(t *testing.T) {
 	defer teardown(t, s)
 	key := "mykey"
 	data := []byte("some jpg")
-	if err := s.writeStream(key, bytes.NewReader(data)); err != nil {
+	if err := s.Write(key, bytes.NewReader(data)); err != nil {
 		t.Error(err)
 	}
 

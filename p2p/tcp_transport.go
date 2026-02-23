@@ -1,7 +1,9 @@
 package p2p
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"net"
 	"reflect"
 )
@@ -47,6 +49,17 @@ func NewTCPTransport(opts TCPTransportOpts) *TCPTransport {
 	}
 }
 
+// Dial implements Transport interface
+func (t *TCPTransport) Dial(addr string) error {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return err
+	}
+
+	go t.handleConnection(conn, true)
+	return nil
+}
+
 func (t *TCPTransport) ListenAndAccept() error {
 	var err error
 	t.listener, err = net.Listen("tcp", t.ListenAddr)
@@ -54,12 +67,20 @@ func (t *TCPTransport) ListenAndAccept() error {
 		return err
 	}
 
-	fmt.Println("Server Started")
+	log.Printf("Server Started on port: %s\n", t.ListenAddr)
 
 	go t.startAcceptLoop()
 	return nil
 }
 
+// Close implement Transport interface
+func (t *TCPTransport) Close() error {
+	log.Println("Stoped TCP Listener")
+	return t.listener.Close()
+}
+
+// Consume implement Transport interface. It returns a read-only channel that will be 
+// used to recieve messages from other peer on the network
 func (t *TCPTransport) Consume() <-chan RPC {
 	return t.rpcChan
 }
@@ -68,22 +89,26 @@ func (t *TCPTransport) startAcceptLoop() {
 	for {
 
 		conn, err := t.listener.Accept()
+		if errors.Is(err, net.ErrClosed) {
+			log.Println("Stopped accepting new connecton")
+			return
+		}
 		if err != nil {
-			fmt.Printf("Tcp connection error: %s\n", err)
+			log.Printf("Tcp connection error: %s\n", err)
 		}
 
-		fmt.Printf("Got new Connection: %+v\n", conn)
-		go t.handleConnection(conn)
+		log.Printf("Got new Connection(%s): %+v\n",t.ListenAddr, conn)
+		go t.handleConnection(conn, false)
 	}
 }
 
-func (t *TCPTransport) handleConnection(conn net.Conn) {
+func (t *TCPTransport) handleConnection(conn net.Conn, outbound bool) {
 	var err error
 	defer func() {
 		fmt.Printf("Dropping connnection: %s\n", err)
 		conn.Close()
 	}()
-	peer := NewTCPPeer(conn, true)
+	peer := NewTCPPeer(conn, outbound)
 
 	if err = t.HandshakeFunc(peer); err != nil {
 		fmt.Printf("Tcp error : %s\n", err)
@@ -100,7 +125,7 @@ func (t *TCPTransport) handleConnection(conn net.Conn) {
 	// Read loop
 	for {
 		err := t.Decoder.Decode(conn, &rpc)
-		if reflect.TypeOf(err) == reflect.TypeOf(&net.OpError{}) { 
+		if reflect.TypeOf(err) == reflect.TypeOf(&net.OpError{}) {
 			return
 		}
 		if err != nil {
