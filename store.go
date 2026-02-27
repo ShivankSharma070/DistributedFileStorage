@@ -11,11 +11,14 @@ import (
 	"strings"
 )
 
+// DefaultRootDirName is the default directory name used for storing files
+// when no root directory is specified
 const DefaultRootDirName = "files"
 
 // CASPathTransformFunc uses a key to generate a path which can be used to
-// store a file on disk. A hash values is generated for a key, which is then
-// fragmented in fixed blockSize to get a CAS Path
+// store a file on disk. A SHA1 hash is generated for the key, which is then
+// split into fixed-size blocks to create a CAS (Content Addressable Storage)
+// style path
 func CASPathTransformFunc(key string) PathKey {
 	hash := sha1.Sum([]byte(key))
 	hashStr := hex.EncodeToString(hash[:])
@@ -35,15 +38,21 @@ func CASPathTransformFunc(key string) PathKey {
 	}
 }
 
-// PathTransformFunc is used to generate path for storing a file by using
-// generating hash value of a key
+// PathTransformFunc is a function type that transforms a key into a PathKey
+// containing the pathname and filename used for storing a file on disk
 type PathTransformFunc func(string) PathKey
 
+// PathKey holds the pathname and filename components used to construct
+// the full file path for storage
 type PathKey struct {
+	// Pathname is the directory path where the file will be stored
 	Pathname string
+	// Filename is the name of the file within the pathname
 	Filename string
 }
 
+// DefaultPathTransformFunc is the default implementation of PathTransformFunc.
+// It returns the key as both the pathname and filename without any transformation
 func DefaultPathTransformFunc(key string) PathKey {
 	return PathKey{
 		Pathname: key,
@@ -51,10 +60,13 @@ func DefaultPathTransformFunc(key string) PathKey {
 	}
 }
 
+// FullPath returns the full path by joining pathname and filename
 func (pk *PathKey) FullPath() string {
 	return fmt.Sprintf("%s/%s", pk.Pathname, pk.Filename)
 }
 
+// FirstPathName returns the first component of the pathname (the root directory)
+// by splitting the pathname on "/" and returning the first element
 func (pk *PathKey) FirstPathName() string {
 	paths := strings.Split(pk.Pathname, "/")
 	if len(paths) == 0 {
@@ -64,13 +76,16 @@ func (pk *PathKey) FirstPathName() string {
 	return paths[0]
 }
 
+// StoreOpts holds configuration options for creating a new Store
 type StoreOpts struct {
-	// Root is the directory name of the root, containing all
-	// the files/directories of the system
+	// Root is the root directory name that will contain all
+	// files and subdirectories of the storage system
 	root string
 	PathTransformFunc
 }
 
+// Store is responsible for managing file storage on disk. It provides
+// methods to read, write, delete, and check for the existence of files
 type Store struct {
 	StoreOpts
 }
@@ -100,9 +115,11 @@ func (s *Store) Clear() error {
 	return os.RemoveAll(s.root)
 }
 
-func (s *Store) Has(key string) bool {
+// Has checks whether a file exists in the store for the given id and key.
+// Returns true if the file exists, false otherwise
+func (s *Store) Has(id string, key string) bool {
 	pathKey := s.PathTransformFunc(key)
-	fullNameWithRoot := fmt.Sprintf("%s/%s", s.root, pathKey.FullPath())
+	fullNameWithRoot := fmt.Sprintf("%s/%s/%s", s.root, id, pathKey.FullPath())
 	_, err := os.Stat(fullNameWithRoot)
 	if errors.Is(err, os.ErrNotExist) {
 		return false
@@ -111,9 +128,11 @@ func (s *Store) Has(key string) bool {
 	return true
 }
 
-func (s *Store) Delete(key string) error {
+// Delete removes the file associated with the given id and key from the store.
+// It removes the entire directory containing the file
+func (s *Store) Delete(id string, key string) error {
 	pathKey := s.PathTransformFunc(key)
-	firstPathNameWithRoot := fmt.Sprintf("%s/%s", s.root, pathKey.FirstPathName())
+	firstPathNameWithRoot := fmt.Sprintf("%s/%s/%s", s.root, id, pathKey.FirstPathName())
 	defer func() {
 		log.Printf("Deleted File: %s\n", pathKey.FullPath())
 	}()
@@ -121,16 +140,10 @@ func (s *Store) Delete(key string) error {
 	return os.RemoveAll(firstPathNameWithRoot)
 }
 
-// Write is used to store data on disk, the path of the stored file is
-// determined by the key provided. Key should be unique for each file to be
-// stored
-func (s *Store) Write(key string, r io.Reader) (int64, error) {
-	return s.writeStream(key, r)
-}
-
-// Read is used to retrieve file content from the disk
-func (s *Store) Read(key string) (int64,io.Reader, error) {
-	return s.readStream(key)
+// Read retrieves file content from the store for the given id and key.
+// It returns the file size, an io.Reader to read the contents, and any error
+func (s *Store) Read(id string, key string) (int64, io.Reader, error) {
+	return s.readStream(id, key)
 	// n, f, err := s.readStream(key)
 	// if err != nil {
 	// 	return 0,nil, err
@@ -143,12 +156,13 @@ func (s *Store) Read(key string) (int64,io.Reader, error) {
 	// return n, buf, err
 }
 
-func (s *Store) readStream(key string) (int64, io.ReadCloser, error) {
+// readStream opens a file for reading and returns its size along with
+// an io.ReadCloser to read the file contents
+func (s *Store) readStream(id string, key string) (int64, io.ReadCloser, error) {
 	pathKey := s.PathTransformFunc(key)
-	FullNameWithRoot := fmt.Sprintf("%s/%s", s.root, pathKey.FullPath())
+	FullNameWithRoot := fmt.Sprintf("%s/%s/%s", s.root, id, pathKey.FullPath())
 
-
-	file, err :=os.Open(FullNameWithRoot)
+	file, err := os.Open(FullNameWithRoot)
 	if err != nil {
 		return 0, nil, err
 	}
@@ -160,18 +174,30 @@ func (s *Store) readStream(key string) (int64, io.ReadCloser, error) {
 	return fileStat.Size(), file, nil
 }
 
-func (s *Store) writeDecrypt(encKey []byte, key string, r io.Reader) (int64, error) {
-	f, err := s.openFileForWriting(key)
+// Write stores data from the provided io.Reader to disk. The path of the
+// stored file is determined by the id and key. The key should be unique
+// for each file. Returns the number of bytes written and any error
+func (s *Store) Write(id string, key string, r io.Reader) (int64, error) {
+	return s.writeStream(id, key, r)
+}
+
+// writeDecrypt opens a file for writing, decrypts the data from the provided
+// io.Reader using the given encryption key, and writes the decrypted content
+// to the file
+func (s *Store) writeDecrypt(encKey []byte, id string, key string, r io.Reader) (int64, error) {
+	f, err := s.openFileForWriting(id, key)
 	if err != nil {
 		return 0, err
 	}
 	defer f.Close()
-	n, err:= copyDecrypt(encKey, r, f)
-	return int64(n), err 
+	n, err := copyDecrypt(encKey, r, f)
+	return int64(n), err
 }
 
-func (s *Store) writeStream(key string, r io.Reader) (int64, error) {
-	f, err := s.openFileForWriting(key)
+// writeStream opens a file for writing and copies data from the provided
+// io.Reader into the file, returning the number of bytes written
+func (s *Store) writeStream(id string, key string, r io.Reader) (int64, error) {
+	f, err := s.openFileForWriting(id, key)
 	if err != nil {
 		return 0, err
 	}
@@ -179,9 +205,11 @@ func (s *Store) writeStream(key string, r io.Reader) (int64, error) {
 	return io.Copy(f, r)
 }
 
-func (s *Store) openFileForWriting(key string) (*os.File, error) {
+// openFileForWriting creates the necessary directory structure for the given
+// id and key, then opens or creates the file for writing and returns it
+func (s *Store) openFileForWriting(id string, key string) (*os.File, error) {
 	pathKey := s.PathTransformFunc(key)
-	pathNameWithRoot := fmt.Sprintf("%s/%s", s.root, pathKey.Pathname)
+	pathNameWithRoot := fmt.Sprintf("%s/%s/%s", s.root, id, pathKey.Pathname)
 
 	if err := os.MkdirAll(pathNameWithRoot, os.ModePerm); err != nil {
 		return nil, err
@@ -190,4 +218,4 @@ func (s *Store) openFileForWriting(key string) (*os.File, error) {
 	FullNameWithRoot := fmt.Sprintf("%s/%s", pathNameWithRoot, pathKey.Filename)
 
 	return os.Create(FullNameWithRoot)
-} 
+}

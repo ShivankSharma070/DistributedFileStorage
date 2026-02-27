@@ -33,27 +33,29 @@ func TestPathTransformFunc(t *testing.T) {
 func TestDelete(t *testing.T) {
 	s := createNewStore()
 	key := "myotherkey"
+	id := generateID()
 	data := []byte("some jpg")
-	_, err := s.Write(key, bytes.NewReader(data))
+	_, err := s.Write(id,key, bytes.NewReader(data))
 	assert.Nil(t, err)
 
-	err = s.Delete(key)
+	err = s.Delete(id,key)
 	assert.Nil(t, err)
 }
 
 func TestNewStore(t *testing.T) {
 	s := createNewStore()
+	id := generateID()
 	defer teardown(t, s)
 	key := "mykey"
 	data := []byte("some jpg")
-	_, err := s.Write(key, bytes.NewReader(data))
+	_, err := s.Write(id,key, bytes.NewReader(data))
 	if err != nil {
 		t.Error(err)
 	}
 
-	assert.True(t, s.Has(key))
+	assert.True(t, s.Has(id,key))
 
-	_, r, err := s.Read(key)
+	_, r, err := s.Read(id,key)
 	assert.Nil(t, err)
 
 	buf, err := io.ReadAll(r)
@@ -65,9 +67,10 @@ func TestHas(t *testing.T) {
 	opts := StoreOpts{
 		PathTransformFunc: CASPathTransformFunc,
 	}
+	id := generateID()
 	s := NewStore(opts)
 	key := "mykey"
-	doesExists := s.Has(key)
+	doesExists := s.Has(id,key)
 	fmt.Println(doesExists)
 	assert.False(t, doesExists)
 }

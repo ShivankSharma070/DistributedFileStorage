@@ -1,9 +1,7 @@
 package main
 
 import (
-	 "bytes"
-	"fmt"
-	"io"
+	"bytes"
 	"log"
 	"strings"
 	"time"
@@ -37,6 +35,7 @@ func makeServer(listenAddr string, node ...string) *FileServer {
 func main() {
 	s1 := makeServer(":3000", "")
 	s2 := makeServer(":4000", ":3000")
+	s3 := makeServer(":5000", ":3000", ":4000")
 
 	go func() {
 		log.Fatal(s1.Start())
@@ -50,25 +49,31 @@ func main() {
 
 	time.Sleep(time.Second * 1)
 
-	 buf := bytes.NewReader([]byte("This is some large file"))
-	 key := "mysecretkejy"
-	 s2.Store(key, buf)
+	go func() {
+		log.Fatal(s3.Start())
+	}()
 
+	time.Sleep(time.Second * 1)
 
-	 if  err := s2.store.Delete(key); err != nil {
-		 log.Fatalf("Error deleting file %s", key)
-	 }
+	key := "mysecretkejy"
+	buf := bytes.NewReader([]byte("This is some large file"))
+	s3.Store(key, buf)
+	time.Sleep(15*time.Second)
 
-	r, err := s2.Get("mysecretkejy")
-	if err != nil {
-		log.Fatal(err)
+	if err := s3.Delete("someotherkey"); err != nil {
+		log.Fatalf("Error deleting file : %s", err)
 	}
 
-	data, err := io.ReadAll(r)
-	if err != nil {
-		log.Fatal(err)
-	}
-	fmt.Println("Recieved file form server:", string(data))
+	// r, err := s3.Get(key)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	//
+	// data, err := io.ReadAll(r)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
+	// fmt.Println("Recieved file form server:", string(data))
 
 	select {}
 }
