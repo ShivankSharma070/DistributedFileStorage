@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ShivankSharma070/DistributedFileStorage/p2p"
+	"github.com/ShivankSharma070/SwarmStore/p2p"
 )
 
 func makeServer(listenAddr string, node ...string) *FileServer {

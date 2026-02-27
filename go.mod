@@ -1,4 +1,4 @@
-module github.com/ShivankSharma070/DistributedFileStorage
+module github.com/ShivankSharma070/SwarmStore
 
 go 1.25.0
 

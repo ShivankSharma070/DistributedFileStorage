@@ -25,4 +25,7 @@ bin/
 # Go workspace file
 go.work
 
+# Storage directories created by nodes at runtime
+*_network/
+
 # End of https://www.toptal.com/developers/gitignore/api/go
